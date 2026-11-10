@@ -1,0 +1,233 @@
+
+@Library('roboshop-ci') _
+
+pipeline {
+
+    agent {
+        label 'AGENT-1'
+    }
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+    }
+
+    environment {
+        PROJECT          = 'roboshop'
+        SERVICE_NAME     = 'shipping'
+
+        APP_REPO_URL     = 'https://github.com/kriiishmatic/roboshop-shipping-ci.git'
+        APP_BRANCH       = 'main'
+        POM_PATH         = 'pom.xml'
+
+        AWS_REGION       = 'us-east-1'
+        AWS_ACCOUNT_ID   = '392401698561'
+
+        ECR_REPOSITORY   = 'project-k/shipping'
+        ECR_REGISTRY     = '392401698561.dkr.ecr.us-east-1.amazonaws.com'
+    }
+
+    stages {
+
+        stage('Validate Release Branch') {
+            steps {
+                script {
+                    if (env.BRANCH_NAME != 'main') {
+                        error "Release is permitted only from main. Current branch: ${env.BRANCH_NAME}"
+                    }
+
+                    echo 'Release branch validation successful.'
+                }
+            }
+        }
+
+        stage('Checkout') {
+            steps {
+                checkoutCode()
+            }
+        }
+
+        stage('Setup Java and Maven') {
+            steps {
+                setupJavaMaven()
+            }
+        }
+
+        stage('Initialize Release') {
+            steps {
+                initializePipeline()
+
+                script {
+                    if (!env.GIT_SHORT_COMMIT) {
+                        error 'Git short commit SHA is missing.'
+                    }
+
+                    if (!env.BUILD_VERSION) {
+                        error 'Application version could not be extracted from pom.xml.'
+                    }
+
+                    // Image tag: application version + short Git SHA
+                    env.IMAGE_TAG = "${env.BUILD_VERSION}-${env.GIT_SHORT_COMMIT}"
+
+                    echo """
+                    Release Information
+                    -------------------
+                    Service          : ${env.SERVICE_NAME}
+                    Branch           : ${env.BRANCH_NAME}
+                    Application Ver  : ${env.BUILD_VERSION}
+                    Git Commit       : ${env.GIT_SHORT_COMMIT}
+                    Docker Image Tag : ${env.IMAGE_TAG}
+                    ECR Repository   : ${env.ECR_REPOSITORY}
+                    """
+                }
+            }
+        }
+
+        stage('Verify Build Environment') {
+            steps {
+                sh '''
+                    set -eu
+
+                    echo "Checking Docker..."
+                    docker --version
+
+                    echo "Checking AWS CLI..."
+                    aws --version
+
+                    echo "Checking Trivy..."
+                    trivy --version
+
+                    echo "Checking AWS identity..."
+                    aws sts get-caller-identity --region "$AWS_REGION"
+                '''
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh '''
+                    set -eu
+
+                    IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+                    echo "Building image: $IMAGE"
+
+                    docker build \
+                        -t "$IMAGE" \
+                        .
+
+                    echo "Docker image built successfully."
+                '''
+            }
+        }
+
+        stage('Trivy Image Scan') {
+            steps {
+                sh '''
+                    set -eu
+
+                    IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+                    echo "Scanning image: $IMAGE"
+
+                    trivy image \
+                        --exit-code 1 \
+                        --severity HIGH,CRITICAL \
+                        --ignore-unfixed \
+                        "$IMAGE"
+
+                    echo "Trivy scan passed."
+                '''
+            }
+        }
+
+        stage('Authenticate with AWS ECR') {
+            steps {
+                sh '''
+                    set -eu
+
+                    aws ecr get-login-password \
+                        --region "$AWS_REGION" |
+                    docker login \
+                        --username AWS \
+                        --password-stdin "$ECR_REGISTRY"
+                '''
+            }
+        }
+
+        stage('Push Image to ECR') {
+            steps {
+                sh '''
+                    set -eu
+
+                    IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+                    echo "Pushing image: $IMAGE"
+
+                    docker push "$IMAGE"
+
+                    echo "Image pushed successfully."
+                '''
+            }
+        }
+
+        stage('Capture ECR Image Digest') {
+            steps {
+                script {
+                    env.IMAGE_DIGEST = sh(
+                        script: '''
+                            aws ecr describe-images \
+                                --region "$AWS_REGION" \
+                                --repository-name "$ECR_REPOSITORY" \
+                                --image-ids imageTag="$IMAGE_TAG" \
+                                --query 'imageDetails[0].imageDigest' \
+                                --output text
+                        ''',
+                        returnStdout: true
+                    ).trim()
+
+                    if (!env.IMAGE_DIGEST ||
+                        env.IMAGE_DIGEST == 'None') {
+                        error 'Unable to retrieve ECR image digest.'
+                    }
+
+                    env.IMAGE_URI = "${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}@${env.IMAGE_DIGEST}"
+
+                    echo """
+                    RELEASE SUCCESSFUL
+                    ------------------
+                    Image Tag    : ${env.IMAGE_TAG}
+                    Image Digest : ${env.IMAGE_DIGEST}
+                    Immutable URI: ${env.IMAGE_URI}
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Shipping release completed successfully: ${env.IMAGE_TAG}"
+        }
+
+        failure {
+            echo 'Shipping release failed. Check the stage logs for details.'
+        }
+
+        always {
+            script {
+                if (env.IMAGE_TAG) {
+                    sh(
+                        script: """
+                            docker image rm \
+                                '${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:${env.IMAGE_TAG}' \
+                                || true
+                        """,
+                        returnStatus: true
+                    )
+                }
+            }
+        }
+    }
+}
