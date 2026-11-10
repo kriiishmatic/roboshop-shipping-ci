@@ -42,4 +42,17 @@ class CalculatorTest {
 
         assertEquals(344, calculator.getDistance(48.8566, 2.3522), 1);
     }
+
+@Test
+void shouldFailWhenAdditionResultIsIncorrect() {
+    Calculator calculator = new Calculator();
+
+    int actualResult = calculator.add(5, 5);
+
+    // Intentionally incorrect expected value to test Jenkins failure handling.
+    assertEquals(100, actualResult,
+            "Intentional failure: expected 100 but actual result is 10");
 }
+
+}
+
