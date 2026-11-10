@@ -1,3 +1,4 @@
+
 package com.instana.robotshop.shipping;
 
 import org.junit.jupiter.api.Test;
@@ -43,16 +44,30 @@ class CalculatorTest {
         assertEquals(344, calculator.getDistance(48.8566, 2.3522), 1);
     }
 
-@Test
-void shouldFailWhenAdditionResultIsIncorrect() {
-    Calculator calculator = new Calculator();
+    // =====================================================
+    // TEMPORARY FAILURE TEST - JENKINS FAILURE VALIDATION
+    // =====================================================
+    // Purpose:
+    // Intentionally use an incorrect expected distance.
+    //
+    // Expected behaviour:
+    // 1. Test compiles successfully.
+    // 2. Test executes.
+    // 3. Assertion fails.
+    // 4. Maven returns BUILD FAILURE.
+    // 5. Jenkins publishes the failed JUnit report.
+    //
+    // IMPORTANT:
+    // Remove this test after validating Jenkins failure handling.
 
-    int actualResult = calculator.add(5, 5);
+    @Test
+    void shouldFailIntentionallyToValidateJenkinsPipeline() {
+        Calculator calculator = new Calculator(51.5074, -0.1278);
 
-    // Intentionally incorrect expected value to test Jenkins failure handling.
-    assertEquals(100, actualResult,
-            "Intentional failure: expected 100 but actual result is 10");
+        double actualDistance = calculator.getDistance(48.8566, 2.3522);
+
+        // Intentionally incorrect expected value.
+        assertEquals(999, actualDistance, 1,
+                "Intentional failure for Jenkins CI validation");
+    }
 }
-
-}
-
