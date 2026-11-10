@@ -6,3 +6,4 @@ Make sure we implemt properly before Notifications are setup
 ** Slack notifications are added testing it now.
 ** testing colours
 ** testing s3 metadata
+** Testing metadata for s3
