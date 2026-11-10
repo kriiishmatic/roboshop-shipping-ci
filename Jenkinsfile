@@ -1,22 +1,33 @@
+
 @Library('roboshop-ci') _
 
-mavenPipeline(
+// Identify the source branch.
+// For PR builds, CHANGE_BRANCH contains the source branch.
+def sourceBranch = env.CHANGE_BRANCH ?: env.BRANCH_NAME
 
-    project: 'project',
+// Allow only feature branches.
+if (sourceBranch?.startsWith('feature/')) {
 
-    service: 'shipping',
+    echo "Feature branch detected: ${sourceBranch}"
+    echo "Starting Shipping CI pipeline..."
 
-    appRepoUrl: 'https://github.com/YOUR-ORG/shipping.git',
-    appBranch: 'main',
+    mavenPipeline(
 
-    pomPath: 'pom.xml',
-    dockerfile: 'Dockerfile',
+        project: 'project',
+        service: 'shipping',
 
-    awsRegion: 'us-east-1',
+        appRepoUrl: 'https://github.com/kriiishmatic/roboshop-shipping-ci.git',
+        appBranch: sourceBranch,
 
-    ecrRepository: 'project-k/shipping',
+        pomPath: 'pom.xml',
 
-    ecrRegistry: '392401698561.dkr.ecr.us-east-1.amazonaws.com',
+        awsRegion: 'us-east-1',
+        ecrRepository: 'project-k/shipping'
+    )
 
-    notificationEmail: 'vamsikrishnakvam11@gmail.com'
-)
+} else {
+
+    echo "Skipping pipeline."
+    echo "Branch '${sourceBranch}' is not allowed."
+    echo "Only feature/* branches and their PRs can execute Shipping CI."
+}
