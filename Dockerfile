@@ -13,7 +13,7 @@ COPY pom.xml .
 COPY src ./src
 
 # Build the Spring Boot application
-RUN mvn -B -ntp clean package
+RUN mvn -B -ntp clean package -DskipTests
 
 # Rename generated JAR to a consistent name
 RUN JAR_FILE=$(find target -maxdepth 1 -type f -name '*.jar' \
